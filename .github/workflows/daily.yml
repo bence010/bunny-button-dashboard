@@ -2,8 +2,8 @@ name: Daily Bunny Report
 
 on:
   schedule:
-    - cron: '0 8 * * *'   # minden nap 8:00 UTC = 10:00 magyar idő
-  workflow_dispatch:        # kézi indítás is lehetséges
+    - cron: '0 8 * * *'   # every day at 8:00 UTC
+  workflow_dispatch:        
 
 jobs:
   report:
