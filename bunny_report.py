@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """
-🥕 Bunny Button Daily Report Generator
-Fetches live data from the public BunnyButton API and prints a formatted daily report.
-Run once a day (e.g. via cron) and pipe the output to Discord, Telegram, X, etc.
+🥕 Bunny Button Daily Report Generator + Presale Tracker
 """
 
 import json
-import time
 import datetime
 import urllib.request
 import urllib.error
@@ -51,7 +48,7 @@ def display_name(player: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# State persistence  (simple JSON file — swap for a DB if you like)
+# State persistence
 # ---------------------------------------------------------------------------
 
 STATE_FILE = "bunny_report_state.json"
@@ -71,13 +68,52 @@ def save_state(state: dict):
 
 
 # ---------------------------------------------------------------------------
+# Presale tracker
+# ---------------------------------------------------------------------------
+
+PRESALE_MILESTONES = [25, 50, 75, 100]
+
+
+def check_presale_alerts(eth_raised: float, state: dict) -> str:
+    """Returns an alert message if a milestone was just crossed, else empty string."""
+    pct = (eth_raised / 100) * 100
+    already_alerted = state.get("presale_alerted", [])
+    new_alerts = []
+
+    for milestone in PRESALE_MILESTONES:
+        if pct >= milestone and milestone not in already_alerted:
+            new_alerts.append(milestone)
+
+    if not new_alerts:
+        return ""
+
+    state.setdefault("presale_alerted", []).extend(new_alerts)
+
+    highest = max(new_alerts)
+    eth_remaining = 100 - eth_raised
+
+    if highest == 100:
+        msg = "🎉 PRESALE SOLD OUT! 100/100 ETH raised — the farm is full!"
+    else:
+        bar_filled = int(pct / 10)
+        bar = "🟧" * bar_filled + "⬜" * (10 - bar_filled)
+        msg = (
+            f"🚨 Presale milestone reached: {highest}%!\n"
+            f"{bar} {eth_raised:.2f}/100 ETH\n"
+            f"💎 Only {eth_remaining:.2f} ETH left until sold out!"
+        )
+
+    return msg
+
+
+# ---------------------------------------------------------------------------
 # Main report logic
 # ---------------------------------------------------------------------------
 
 def build_report() -> str:
     today = datetime.date.today().isoformat()
     state = load_state()
-    yesterday_ranks: dict[str, int] = state.get("ranks", {})  # wallet -> rank
+    yesterday_ranks: dict[str, int] = state.get("ranks", {})
     yesterday_eth: float = state.get("eth_usd", 0.0)
 
     # ── 1. Fetch data ────────────────────────────────────────────────────────
@@ -103,23 +139,27 @@ def build_report() -> str:
     try:
         presale_data = fetch("/presale/status")
         eth_raised: float = float(
-            presale_data.get("totalEthRaised")
+            presale_data.get("totalRaisedEth")
+            or presale_data.get("totalEthRaised")
             or presale_data.get("ethRaised")
-            or presale_data.get("raised")
             or 0
         )
-    except Exception:
+    except Exception as e:
+        print(f"Presale error: {e}", file=__import__('sys').stderr)
         eth_raised = 0.0
 
-    # ── 2. Compute movements ────────────────────────────────────────────────
+    # ── 2. Presale alerts ────────────────────────────────────────────────────
+    presale_alert = check_presale_alerts(eth_raised, state)
+
+    # ── 3. Compute movements ─────────────────────────────────────────────────
     current_ranks: dict[str, int] = {}
     for p in leaderboard:
         wallet = p.get("walletAddress") or p.get("wallet_address") or ""
         rank = int(p.get("rank") or leaderboard.index(p) + 1)
         current_ranks[wallet] = rank
 
-    biggest_climber = None   # (name, delta)
-    biggest_dropper = None   # (name, delta)
+    biggest_climber = None
+    biggest_dropper = None
     new_top10: list[str] = []
     yesterday_top10 = set(w for w, r in yesterday_ranks.items() if r <= 10)
 
@@ -130,7 +170,7 @@ def build_report() -> str:
         prev = yesterday_ranks.get(wallet)
 
         if prev is not None:
-            delta = prev - curr  # positive = climbed
+            delta = prev - curr
             if delta > 0:
                 if biggest_climber is None or delta > biggest_climber[1]:
                     biggest_climber = (name, delta)
@@ -142,14 +182,14 @@ def build_report() -> str:
         if curr <= 10 and wallet not in yesterday_top10:
             new_top10.append(name)
 
-    # ── 3. #1 change ────────────────────────────────────────────────────────
+    # ── 4. #1 change ─────────────────────────────────────────────────────────
     top_player = leaderboard[0] if leaderboard else {}
     top_name = display_name(top_player)
     top_wallet = top_player.get("walletAddress") or top_player.get("wallet_address") or ""
     prev_top = min(yesterday_ranks, key=yesterday_ranks.get) if yesterday_ranks else None
     top_unchanged = prev_top == top_wallet or not yesterday_ranks
 
-    # ── 4. Top-2 gap insight ─────────────────────────────────────────────────
+    # ── 5. Top-2 gap insight ──────────────────────────────────────────────────
     gap_line = ""
     if len(leaderboard) >= 2:
         c1 = int(leaderboard[0].get("totalCarrotsEarned") or leaderboard[0].get("carrots") or 0)
@@ -157,42 +197,42 @@ def build_report() -> str:
         gap = c1 - c2
         pct = (gap / c1 * 100) if c1 > 0 else 0
         if pct < 1:
-            gap_line = "⚔️  The race for the top spot is *very* tight — less than 1% separates the top two!"
+            gap_line = "⚔️  The race for the top spot is very tight — less than 1% separates the top two!"
         elif pct < 5:
             gap_line = f"⚔️  The gap between #1 and #2 is only {fmt_carrots(gap)} carrots ({pct:.1f}%) — anyone's game."
         else:
             gap_line = f"👑  {top_name} leads by {fmt_carrots(gap)} carrots ({pct:.1f}%) — a comfortable cushion."
 
-    # ── 5. ETH change ────────────────────────────────────────────────────────
+    # ── 6. ETH change ─────────────────────────────────────────────────────────
     eth_change = ""
     if yesterday_eth and eth_usd:
         delta_pct = (eth_usd - yesterday_eth) / yesterday_eth * 100
         sign = "+" if delta_pct >= 0 else ""
         eth_change = f" ({sign}{delta_pct:.1f}%)"
 
-    # ── 6. Presale bar ───────────────────────────────────────────────────────
+    # ── 7. Presale bar ────────────────────────────────────────────────────────
     presale_line = ""
     if eth_raised > 0:
         pct_filled = eth_raised / 100 * 100
-        bar_filled = int(pct_filled / 10)
-        bar = "🟧" * bar_filled + "⬜" * (10 - bar_filled)
+        bar_filled = int(pct_filled / 5)
+        bar = "🟧" * bar_filled + "⬜" * (20 - bar_filled)
         presale_line = f"💎  Presale: {bar} {eth_raised:.2f}/100 ETH ({pct_filled:.1f}%)"
 
-    # ── 7. Assemble report ───────────────────────────────────────────────────
+    # ── 8. Assemble report ────────────────────────────────────────────────────
     lines = [
-        f"🥕 *Daily Bunny Report* — {today}",
+        f"🥕 Bunny Button Report — {today}",
         "",
     ]
 
     if top_unchanged:
-        lines.append(f"🏆  #1 remains unchanged: *{top_name}*  ({fmt_carrots(top_player.get('totalCarrotsEarned') or top_player.get('carrots'))} 🥕)")
+        lines.append(f"🏆  #1 remains unchanged: {top_name}  ({fmt_carrots(top_player.get('totalCarrotsEarned') or top_player.get('carrots'))} 🥕)")
     else:
-        lines.append(f"👑  New #1: *{top_name}*!  ({fmt_carrots(top_player.get('totalCarrotsEarned') or top_player.get('carrots'))} 🥕)")
+        lines.append(f"👑  New #1: {top_name}!  ({fmt_carrots(top_player.get('totalCarrotsEarned') or top_player.get('carrots'))} 🥕)")
 
     if biggest_climber:
-        lines.append(f"📈  Biggest climber: *{biggest_climber[0]}* (+{biggest_climber[1]} places)")
+        lines.append(f"📈  Biggest climber: {biggest_climber[0]} (+{biggest_climber[1]} places)")
     if biggest_dropper:
-        lines.append(f"📉  Biggest drop: *{biggest_dropper[0]}* (-{biggest_dropper[1]} places)")
+        lines.append(f"📉  Biggest drop: {biggest_dropper[0]} (-{biggest_dropper[1]} places)")
 
     if new_top10:
         entrants = " • ".join(new_top10)
@@ -207,22 +247,27 @@ def build_report() -> str:
     if presale_line:
         lines.append(presale_line)
 
+    if presale_alert:
+        lines.append("")
+        lines.append(presale_alert)
+
     if gap_line:
         lines.append("")
         lines.append(gap_line)
 
     lines += [
         "",
-        "See you tomorrow for the next Bunny Report. 🐇",
+        "See you next time for the next Bunny Report. 🐇",
         "— BunnyButton.xyz",
         "Made by @bbence776",
     ]
 
-    # ── 8. Save state for tomorrow ───────────────────────────────────────────
+    # ── 9. Save state ─────────────────────────────────────────────────────────
     new_state = {
         "date": today,
         "ranks": current_ranks,
         "eth_usd": eth_usd,
+        "presale_alerted": state.get("presale_alerted", []),
     }
     save_state(new_state)
 
@@ -235,18 +280,16 @@ def build_report() -> str:
 
 if __name__ == "__main__":
     import sys
-
     print("Fetching Bunny Button data…\n", file=sys.stderr)
     report = build_report()
     print(report)
 
 
 # ---------------------------------------------------------------------------
-# Optional: send to Discord webhook
+# Send to Discord
 # ---------------------------------------------------------------------------
 
 def send_discord(text: str, webhook_url: str):
-    """Post the report to a Discord channel via webhook."""
     payload = json.dumps({"content": text}).encode()
     req = urllib.request.Request(
         webhook_url,
@@ -259,7 +302,7 @@ def send_discord(text: str, webhook_url: str):
 
 
 # ---------------------------------------------------------------------------
-# Optional: send to Telegram bot
+# Send to Telegram (supports multiple chat IDs as comma-separated string)
 # ---------------------------------------------------------------------------
 
 def send_telegram(text: str, bot_token: str, chat_ids):
@@ -267,18 +310,15 @@ def send_telegram(text: str, bot_token: str, chat_ids):
         chat_ids = chat_ids.split(",")
 
     results = []
-
     for chat_id in chat_ids:
         payload = json.dumps({
             "chat_id": chat_id.strip(),
             "text": text,
         }).encode()
-
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         req = urllib.request.Request(
             url, data=payload, headers={"Content-Type": "application/json"}, method="POST"
         )
-
         with urllib.request.urlopen(req, timeout=10) as resp:
             results.append(json.loads(resp.read()))
 
