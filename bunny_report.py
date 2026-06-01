@@ -262,15 +262,24 @@ def send_discord(text: str, webhook_url: str):
 # Optional: send to Telegram bot
 # ---------------------------------------------------------------------------
 
-def send_telegram(text: str, bot_token: str, chat_id: str):
-    """Post the report to a Telegram chat."""
-    payload = json.dumps({
-        "chat_id": chat_id,
-        "text": text,
-    }).encode()
-    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    req = urllib.request.Request(
-        url, data=payload, headers={"Content-Type": "application/json"}, method="POST"
-    )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        return json.loads(resp.read())
+def send_telegram(text: str, bot_token: str, chat_ids):
+    if isinstance(chat_ids, str):
+        chat_ids = chat_ids.split(",")
+
+    results = []
+
+    for chat_id in chat_ids:
+        payload = json.dumps({
+            "chat_id": chat_id.strip(),
+            "text": text,
+        }).encode()
+
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        req = urllib.request.Request(
+            url, data=payload, headers={"Content-Type": "application/json"}, method="POST"
+        )
+
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            results.append(json.loads(resp.read()))
+
+    return results
