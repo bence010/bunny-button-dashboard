@@ -215,6 +215,7 @@ def build_report() -> str:
         "",
         "See you tomorrow for the next Bunny Report. 🐇",
         "— BunnyButton.xyz",
+        "Made by @bbence776",
     ]
 
     # ── 8. Save state for tomorrow ───────────────────────────────────────────
