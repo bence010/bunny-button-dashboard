@@ -1,7 +1,6 @@
 name: Daily Bunny Report
 
 on:
-  push:
   schedule:
     - cron: "0 */3 * * *"
   workflow_dispatch:        
