@@ -214,8 +214,8 @@ def build_report() -> str:
     presale_line = ""
     if eth_raised > 0:
         pct_filled = eth_raised / 100 * 100
-        bar_filled = int(pct_filled / 5)
-        bar = "🟧" * bar_filled + "⬜" * (20 - bar_filled)
+        bar_filled = int(pct_filled / 10)
+        bar = "🟧" * bar_filled + "⬜" * (10 - bar_filled)
         presale_line = f"💎  Presale: {bar} {eth_raised:.2f}/100 ETH ({pct_filled:.1f}%)"
 
     # ── 8. Assemble report ────────────────────────────────────────────────────
