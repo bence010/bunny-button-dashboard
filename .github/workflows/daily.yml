@@ -25,7 +25,7 @@ jobs:
           report = b.build_report()
           print(report)
           token   = os.getenv('TELEGRAM_TOKEN')
-          chat_id = os.getenv('TELEGRAM_CHAT_ID')
+          chat_id = os.getenv('TELEGRAM_CHAT_ID', '')
           print(f'Token exists: {bool(token)}', file=sys.stderr)
           print(f'Chat ID: {chat_id}', file=sys.stderr)
           if token and chat_id:
