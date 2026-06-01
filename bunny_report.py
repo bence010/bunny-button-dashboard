@@ -138,12 +138,10 @@ def build_report() -> str:
 
     try:
         presale_data = fetch("/presale/status")
-        eth_raised: float = float(
-            presale_data.get("totalRaisedEth")
-            or presale_data.get("totalEthRaised")
-            or presale_data.get("ethRaised")
-            or 0
-        )
+        eth_usd_price = eth_usd if eth_usd else 2000
+        usdt_balance = float(presale_data.get("fundsReceiverUsdtBalance") or 0)
+        eth_balance = float(presale_data.get("fundsReceiverEthBalance") or 0)
+        eth_raised: float = eth_balance + (usdt_balance / eth_usd_price)
     except Exception as e:
         print(f"Presale error: {e}", file=__import__('sys').stderr)
         eth_raised = 0.0
