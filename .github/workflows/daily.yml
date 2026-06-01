@@ -28,10 +28,11 @@ jobs:
           chat_ids = os.getenv("TELEGRAM_CHAT_ID", "TELEGRAM_CHAT_ID")
           print(f'Token exists: {bool(token)}', file=sys.stderr)
           print(f'Chat ID: {chat_id}', file=sys.stderr)
-          if token and chat_id:
-              try:
-                  result = b.send_telegram(report, token, chat_id)
-                  print(f'Telegram result: {result}', file=sys.stderr)
+         if token and chat_id:
+        for cid in chat_id.split(','):
+        try:
+            result = b.send_telegram(report, token, cid.strip())
+            print(f'Sent to {cid}: ok', file=sys.stderr)
               except Exception as e:
-                  print(f'Telegram error: {e}', file=sys.stderr)
+            print(f'Error {cid}: {e}', file=sys.stderr)
           "
